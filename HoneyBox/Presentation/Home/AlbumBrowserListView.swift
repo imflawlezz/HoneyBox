@@ -16,7 +16,7 @@ struct AlbumBrowserListView: View {
                 ScrollView {
                     LazyVStack(spacing: 14) {
                         ForEach(items) { item in
-                            if let author = env.indexSnapshot.authors.first(where: { $0.id == item.authorId }) {
+                            if let author = env.librarySnapshot.authors.first(where: { $0.id == item.authorId }) {
                                 Button {
                                     navSelection = HomeNavSelection(
                                         kind: .albumDetail(
@@ -163,7 +163,7 @@ private struct AlbumCardRow: View {
                 cg = nil
                 return
             }
-            cg = try? await env.imageLoader.loadThumbnailCGImage(
+            cg = try? await env.images.loadThumbnailCGImage(
                 authorId: authorId,
                 albumId: album.id,
                 thumbFileName: name,

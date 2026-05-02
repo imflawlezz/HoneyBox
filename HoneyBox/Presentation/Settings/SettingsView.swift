@@ -58,7 +58,7 @@ struct SettingsView: View {
             }
 
             Section("Storage path") {
-                Text(env.storage.rootURL.path)
+                Text(env.libraryRootURL.path)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -241,14 +241,12 @@ private struct ZipRestoreProgressSheet: View {
         let started = url.startAccessingSecurityScopedResource()
         defer { if started { url.stopAccessingSecurityScopedResource() } }
         do {
-            try await env.zip.restoreLibrary(from: url, indexService: env.index) { p, d, t, label in
+            try await env.restoreLibrary(from: url) { p, d, t, label in
                 phase = p
                 done = d
                 total = t
                 currentLabel = label
             }
-            env.invalidateImageCaches()
-            await env.refreshIndex()
             successMessage = "Your library was replaced with the backup contents."
         } catch {
             errorText = error.localizedDescription
@@ -367,7 +365,7 @@ private struct ZipExportProgressSheet: View {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("HoneyBox-backup-\(Int(Date().timeIntervalSince1970)).zip")
         do {
-            try await env.zip.exportLibrary(to: url) { completed, fileTotal, path in
+            try await env.exportLibrary(to: url) { completed, fileTotal, path in
                 done = completed
                 total = fileTotal
                 currentLabel = path.isEmpty ? "Compressing…" : path

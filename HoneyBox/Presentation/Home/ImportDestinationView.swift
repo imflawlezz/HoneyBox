@@ -43,7 +43,7 @@ struct ImportDestinationView: View {
             Section("Destination") {
                 Picker("Artist", selection: $selection) {
                     Text("New artist…").tag("__new__")
-                    ForEach(env.indexSnapshot.authors) { a in
+                    ForEach(env.librarySnapshot.authors) { a in
                         Text(a.name).tag(a.id)
                     }
                 }
@@ -126,7 +126,7 @@ struct ImportDestinationView: View {
         if selection == "__new__" {
             return !newArtistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        return env.indexSnapshot.authors.contains(where: { $0.id == selection })
+        return env.librarySnapshot.authors.contains(where: { $0.id == selection })
     }
 
     private func runImport() async {
@@ -142,13 +142,12 @@ struct ImportDestinationView: View {
             let authorId: String
             if selection == "__new__" {
                 let name = newArtistName.trimmingCharacters(in: .whitespacesAndNewlines)
-                authorId = try await env.index.createAuthor(displayName: name)
-                await env.refreshIndex()
+                authorId = try await env.createAuthor(displayName: name)
             } else {
                 authorId = selection
             }
 
-            let report = try await env.importPipeline.importFiles(
+            let report = try await env.importFiles(
                 authorId: authorId,
                 fileURLs: fileURLs,
                 onProgress: { phase, done, total, msg in
@@ -163,7 +162,6 @@ struct ImportDestinationView: View {
                     importStatus = msg
                 }
             )
-            await env.refreshIndex()
             onComplete("Imported \(report.importedImages). Skipped \(report.skippedInvalidNames) invalid, \(report.skippedDuplicates) duplicates.")
             dismiss()
         } catch {

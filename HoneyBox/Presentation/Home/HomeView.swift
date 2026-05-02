@@ -180,7 +180,7 @@ struct HomeView: View {
         .fullScreenCover(isPresented: $showShuffle) {
             ImmersiveShuffleViewerShell(env: env)
         }
-        .task { await env.refreshIndex() }
+        .task { await env.refreshLibrarySnapshot() }
         .alert("Import", isPresented: $showImportAlert) {
             Button("OK", role: .cancel) { importMessage = nil }
         } message: {
@@ -318,7 +318,7 @@ struct HomeView: View {
 
     private func continueReadingRow(
         title: String,
-        items: [ContinueReadingItem],
+        items: [HomeContinueReadingItem],
         emptyTitle: String,
         emptyMessage: String
     ) -> some View {
@@ -421,7 +421,9 @@ struct HomeView: View {
     }
 
     private var latestAllItems: [HomeAlbumItem] {
-        env.indexSnapshot.authors.isEmpty ? [] : env.homeLatestAlbums(limit: Int.max).map { HomeAlbumItem(authorId: $0.authorId, album: $0.summary) }
+        env.librarySnapshot.authors.isEmpty
+            ? []
+            : LibraryBrowseQueries.homeLatestAlbums(env.librarySnapshot, limit: Int.max).map { HomeAlbumItem(authorId: $0.authorId, album: $0.summary) }
     }
 
     private var latestPreviewItems: [HomeAlbumItem] {
@@ -429,7 +431,7 @@ struct HomeView: View {
     }
 
     private var favoritesAllItems: [HomeAlbumItem] {
-        let base = env.homeFavoriteAlbums(limit: Int.max).map { HomeAlbumItem(authorId: $0.authorId, album: $0.summary) }
+        let base = LibraryBrowseQueries.homeFavoriteAlbums(env.librarySnapshot, limit: Int.max).map { HomeAlbumItem(authorId: $0.authorId, album: $0.summary) }
         var rng = SeededGenerator(seed: favoritesShuffleSeed)
         return base.shuffled(using: &rng)
     }
@@ -439,7 +441,7 @@ struct HomeView: View {
     }
 
     private var notViewedAllItems: [HomeAlbumItem] {
-        let base = env.homeNotViewedAlbums(limit: Int.max).map { HomeAlbumItem(authorId: $0.authorId, album: $0.summary) }
+        let base = LibraryBrowseQueries.homeNotViewedAlbums(env.librarySnapshot, limit: Int.max).map { HomeAlbumItem(authorId: $0.authorId, album: $0.summary) }
         var rng = SeededGenerator(seed: notViewedShuffleSeed)
         return base.shuffled(using: &rng)
     }
@@ -448,8 +450,8 @@ struct HomeView: View {
         Array(notViewedAllItems.prefix(maxCardsPerSection))
     }
 
-    private var continueReadingItems: [ContinueReadingItem] {
-        env.homeContinueReadingItems(limit: maxCardsPerSection)
+    private var continueReadingItems: [HomeContinueReadingItem] {
+        HomeContinueReadingItem.items(from: env.librarySnapshot, limit: maxCardsPerSection)
     }
 
     private func emptySymbolForSection(_ title: String) -> String {
@@ -507,7 +509,7 @@ fileprivate struct StableHomeSectionRow: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: rowSpacing) {
                 ForEach(items) { item in
-                    if let author = env.indexSnapshot.authors.first(where: { $0.id == item.authorId }) {
+                    if let author = env.librarySnapshot.authors.first(where: { $0.id == item.authorId }) {
                         Button {
                             selection = HomeNavSelection(
                                 kind: .albumDetail(
@@ -586,7 +588,7 @@ private struct HomeAlbumTile: View {
             image = nil
             return
         }
-        image = try? await env.imageLoader.loadThumbnailCGImage(
+        image = try? await env.images.loadThumbnailCGImage(
             authorId: authorId,
             albumId: album.id,
             thumbFileName: name,
@@ -595,82 +597,11 @@ private struct HomeAlbumTile: View {
     }
 }
 
-extension HoneyBoxEnvironment {
-    func homeLatestAlbums(limit: Int) -> [(authorId: String, summary: AlbumSummaryDTO)] {
-        let keys = indexSnapshot.recentlyAdded.prefix(limit)
-        var out: [(String, AlbumSummaryDTO)] = []
-        for entry in keys {
-            if let s = indexSnapshot.albumsByAuthor[entry.authorId]?.first(where: { $0.id == entry.albumId }) {
-                out.append((entry.authorId, s))
-            }
-        }
-        return out
-    }
-
-    func homeFavoriteAlbums(limit: Int) -> [(authorId: String, summary: AlbumSummaryDTO)] {
-        var out: [(String, AlbumSummaryDTO)] = []
-        for key in indexSnapshot.favoriteAlbums {
-            let parts = key.split(separator: "/", maxSplits: 1).map(String.init)
-            guard parts.count == 2,
-                  let s = indexSnapshot.albumsByAuthor[parts[0]]?.first(where: { $0.id == parts[1] }) else { continue }
-            out.append((parts[0], s))
-            if out.count >= limit { break }
-        }
-        return out
-    }
-
-    func homeNotViewedAlbums(limit: Int) -> [(authorId: String, summary: AlbumSummaryDTO)] {
-        var collected: [(String, AlbumSummaryDTO)] = []
-        for author in indexSnapshot.authors {
-            guard let albums = indexSnapshot.albumsByAuthor[author.id] else { continue }
-            for a in albums where a.lastOpenedAt == nil {
-                collected.append((author.id, a))
-            }
-        }
-        collected.sort { $0.1.updatedAt > $1.1.updatedAt }
-        return Array(collected.prefix(limit))
-    }
-}
-
-fileprivate struct ContinueReadingItem: Identifiable {
-    var id: String { "\(authorId)/\(album.id)" }
-    let authorId: String
-    let authorName: String
-    let album: AlbumSummaryDTO
-    let startIndex: Int
-}
-
-fileprivate extension HoneyBoxEnvironment {
-    func homeContinueReadingItems(limit: Int) -> [ContinueReadingItem] {
-        guard !indexSnapshot.recentlyViewed.isEmpty else { return [] }
-        var out: [ContinueReadingItem] = []
-        out.reserveCapacity(min(limit, indexSnapshot.recentlyViewed.count))
-
-        for entry in indexSnapshot.recentlyViewed.prefix(limit) {
-            guard let author = indexSnapshot.authors.first(where: { $0.id == entry.authorId }),
-                  let album = indexSnapshot.albumsByAuthor[entry.authorId]?.first(where: { $0.id == entry.albumId }) else {
-                continue
-            }
-            let key = ImageRef.globalAlbumKey(authorId: entry.authorId, albumId: entry.albumId)
-            let startIndex = indexSnapshot.continueReadingProgress[key] ?? 0
-            out.append(
-                ContinueReadingItem(
-                    authorId: entry.authorId,
-                    authorName: author.name,
-                    album: album,
-                    startIndex: startIndex
-                )
-            )
-        }
-        return out
-    }
-}
-
 fileprivate struct ContinueReadingHistoryView: View {
     @ObservedObject var env: HoneyBoxEnvironment
     let title: String
-    let items: [ContinueReadingItem]
-    @State private var stableItems: [ContinueReadingItem] = []
+    let items: [HomeContinueReadingItem]
+    @State private var stableItems: [HomeContinueReadingItem] = []
 
     var body: some View {
         ScrollView {
@@ -765,7 +696,7 @@ fileprivate struct ContinueReadingCardRow: View {
                 cg = nil
                 return
             }
-            cg = try? await env.imageLoader.loadThumbnailCGImage(
+            cg = try? await env.images.loadThumbnailCGImage(
                 authorId: authorId,
                 albumId: album.id,
                 thumbFileName: name,

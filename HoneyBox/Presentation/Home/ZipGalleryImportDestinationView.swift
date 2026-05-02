@@ -53,7 +53,7 @@ struct ZipGalleryImportDestinationView: View {
             Section("Artist") {
                 Picker("Artist", selection: $selection) {
                     Text("New artist…").tag("__new__")
-                    ForEach(env.indexSnapshot.authors) { a in
+                    ForEach(env.librarySnapshot.authors) { a in
                         Text(a.name).tag(a.id)
                     }
                 }
@@ -136,7 +136,7 @@ struct ZipGalleryImportDestinationView: View {
         if selection == "__new__" {
             return !newArtistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        return env.indexSnapshot.authors.contains(where: { $0.id == selection })
+        return env.librarySnapshot.authors.contains(where: { $0.id == selection })
     }
 
     private func runImport() async {
@@ -152,14 +152,13 @@ struct ZipGalleryImportDestinationView: View {
             let authorId: String
             if selection == "__new__" {
                 let name = newArtistName.trimmingCharacters(in: .whitespacesAndNewlines)
-                authorId = try await env.index.createAuthor(displayName: name)
-                await env.refreshIndex()
+                authorId = try await env.createAuthor(displayName: name)
             } else {
                 authorId = selection
             }
 
             let title = galleryTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            let report = try await env.importPipeline.importNewGallery(
+            let report = try await env.importNewGallery(
                 authorId: authorId,
                 displayTitle: title,
                 fileURLs: extractedImageURLs,
@@ -175,7 +174,6 @@ struct ZipGalleryImportDestinationView: View {
                     importStatus = msg
                 }
             )
-            await env.refreshIndex()
             let summary = report.messages.first ?? "Imported \(report.importedImages) image(s)."
             onComplete(summary)
             dismiss()
