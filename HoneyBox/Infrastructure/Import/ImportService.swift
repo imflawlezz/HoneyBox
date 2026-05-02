@@ -1,30 +1,5 @@
 import Foundation
 
-struct ImportReport: Sendable {
-    var importedImages: Int
-    var skippedInvalidNames: Int
-    var skippedDuplicates: Int
-    var albumsTouched: Set<String>
-    var messages: [String]
-}
-
-enum ImportProgressPhase: String, Sendable {
-    case copying
-    case thumbnails
-}
-
-enum ImportGalleryError: Error, LocalizedError {
-    case emptyTitle
-    case noImages
-
-    var errorDescription: String? {
-        switch self {
-        case .emptyTitle: "Enter a gallery name."
-        case .noImages: "No images to import."
-        }
-    }
-}
-
 private struct ImportParsedFile: Hashable, Sendable {
     var albumNum: Int
     var imageNum: Int
@@ -81,7 +56,7 @@ final class ImportProgressReporter: @unchecked Sendable {
     }
 }
 
-final class ImportService: Sendable {
+final class ImportService: Sendable, LibraryImporting {
     private let storage: StorageService
     private let index: IndexService
     private let images: ImageLoader
@@ -170,7 +145,7 @@ final class ImportService: Sendable {
         if !loose.isEmpty {
             let (albumId, displayTitle, order) = await nextLooseAlbumId(authorId: authorId)
             try await ensureAlbumMeta(authorId: authorId, albumId: albumId, order: order, displayTitle: displayTitle)
-            let looseReport = try await appendLooseImages(
+            let looseReport = try await appendLooseImagesInternal(
                 authorId: authorId,
                 albumId: albumId,
                 fileURLs: loose,
@@ -204,7 +179,7 @@ final class ImportService: Sendable {
 
         let progress: ImportProgressReporter? = onProgress.map { ImportProgressReporter(copyTotal: fileURLs.count, onProgress: $0) }
         try await ensureAlbumMeta(authorId: authorId, albumId: albumId, order: nextOrder, displayTitle: title)
-        var report = try await appendLooseImages(
+        var report = try await appendLooseImagesInternal(
             authorId: authorId,
             albumId: albumId,
             fileURLs: fileURLs,
@@ -255,11 +230,15 @@ final class ImportService: Sendable {
         try await index.touchRecentlyAdded(authorId: authorId, albumId: albumId)
     }
 
-    func appendLooseImages(
+    func appendLooseImages(authorId: String, albumId: String, fileURLs: [URL]) async throws -> ImportReport {
+        try await appendLooseImagesInternal(authorId: authorId, albumId: albumId, fileURLs: fileURLs, progress: nil)
+    }
+
+    private func appendLooseImagesInternal(
         authorId: String,
         albumId: String,
         fileURLs: [URL],
-        progress: ImportProgressReporter? = nil
+        progress: ImportProgressReporter?
     ) async throws -> ImportReport {
         var report = ImportReport(
             importedImages: 0,
