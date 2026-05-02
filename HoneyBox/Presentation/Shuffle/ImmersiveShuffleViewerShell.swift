@@ -132,7 +132,7 @@ struct ImmersiveShuffleViewerShell: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if let current,
-                       let author = env.indexSnapshot.authors.first(where: { $0.id == current.authorId }) {
+                       let author = env.librarySnapshot.authors.first(where: { $0.id == current.authorId }) {
                         Button {
                             isPlaying = false
                             resumeSlideshowAfterAlbum = true
@@ -140,7 +140,7 @@ struct ImmersiveShuffleViewerShell: View {
                                 authorId: current.authorId,
                                 authorName: author.name,
                                 albumId: current.albumId,
-                                albumTitle: env.indexSnapshot.albumsByAuthor[current.authorId]?.first(where: { $0.id == current.albumId })?.displayTitle ?? current.albumId
+                                albumTitle: env.librarySnapshot.albumsByAuthor[current.authorId]?.first(where: { $0.id == current.albumId })?.displayTitle ?? current.albumId
                             )
                         } label: {
                             Image(systemName: "rectangle.stack")
@@ -250,7 +250,7 @@ struct ImmersiveShuffleViewerShell: View {
     private func loadCurrent(_ ref: ImageRef) async {
         let requestedFileName = ref.fileName
         let ext = (ref.fileName as NSString).pathExtension.lowercased()
-        if ImageLoader.supportsAnimatedPlaybackExtension(ext), let g = try? await env.imageLoader.loadAnimatedRaster(ref: ref) {
+        if ImageLoader.supportsAnimatedPlaybackExtension(ext), let g = try? await env.images.loadAnimatedRaster(ref: ref) {
             do { try Task.checkCancellation() } catch { return }
             await MainActor.run {
                 guard history.indices.contains(cursor), history[cursor].fileName == requestedFileName else { return }
@@ -260,7 +260,7 @@ struct ImmersiveShuffleViewerShell: View {
             }
             return
         }
-        let cg = try? await env.imageLoader.loadFullCGImage(ref: ref)
+        let cg = try? await env.images.loadFullCGImage(ref: ref)
         do { try Task.checkCancellation() } catch { return }
         await MainActor.run {
             guard history.indices.contains(cursor), history[cursor].fileName == requestedFileName else { return }

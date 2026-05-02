@@ -110,7 +110,7 @@ struct ShuffleGalleryView: View {
 
     private func loadCurrent(_ ref: ImageRef) async {
         let ext = (ref.fileName as NSString).pathExtension.lowercased()
-        if ImageLoader.supportsAnimatedPlaybackExtension(ext), let g = try? await env.imageLoader.loadAnimatedRaster(ref: ref) {
+        if ImageLoader.supportsAnimatedPlaybackExtension(ext), let g = try? await env.images.loadAnimatedRaster(ref: ref) {
             do { try Task.checkCancellation() } catch { return }
             await MainActor.run {
                 gif = g
@@ -118,7 +118,7 @@ struct ShuffleGalleryView: View {
             }
             return
         }
-        let cg = try? await env.imageLoader.loadFullCGImage(ref: ref)
+        let cg = try? await env.images.loadFullCGImage(ref: ref)
         do { try Task.checkCancellation() } catch { return }
         await MainActor.run {
             still = cg
