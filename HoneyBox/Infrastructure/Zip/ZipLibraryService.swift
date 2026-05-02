@@ -1,30 +1,12 @@
 import Foundation
 import ZIPFoundation
 
-enum ZipLibraryError: Error, LocalizedError {
-    case invalidArchive
-    case missingIndex
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidArchive: "The selected file is not a valid HoneyBox backup."
-        case .missingIndex: "Backup is missing index.json."
-        }
-    }
-}
-
-enum ZipRestorePhase: String, Sendable {
-    case extracting
-    case installing
-    case finalizing
-}
-
 private struct ZipFileEntry: Sendable {
     var url: URL
     var relativePath: String
 }
 
-final class ZipLibraryService: Sendable {
+final class ZipLibraryService: Sendable, ZipLibraryManaging {
     private let storage: StorageService
 
     init(storage: StorageService) {
@@ -74,7 +56,7 @@ final class ZipLibraryService: Sendable {
 
     func restoreLibrary(
         from zipURL: URL,
-        indexService: IndexService,
+        indexService: any LibraryIndexing,
         onProgress: (@MainActor (ZipRestorePhase, Int, Int, String) -> Void)? = nil
     ) async throws {
         guard let archive = Archive(url: zipURL, accessMode: .read) else {
