@@ -21,7 +21,8 @@ actor ShuffleManager: ShuffleManaging {
             return
         }
         refs.shuffle()
-        if let last = lastShown, let first = refs.first, refs.count > 1, first == last {
+        if let last = lastShown, let first = refs.first, refs.count > 1,
+           first.authorId == last.authorId, first.albumId == last.albumId, first.fileName == last.fileName {
             if let swapIdx = refs.indices.dropFirst().first {
                 refs.swapAt(0, swapIdx)
             }
