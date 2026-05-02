@@ -27,7 +27,7 @@ struct HoneyBoxApp: App {
                 guard env == nil else { return }
                 do {
                     lock.refreshLockStateForLaunch()
-                    env = try await HoneyBoxEnvironment.bootstrap(lock: lock)
+                    env = try await HoneyBoxEnvironment.bootstrap()
                 } catch {
                 }
             }
