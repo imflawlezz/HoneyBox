@@ -45,7 +45,6 @@ struct ImmersiveImagePage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .id(pageId)
         .task(id: pageId) {
             await load()
         }
