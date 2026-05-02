@@ -5,7 +5,9 @@ struct GifPlaybackView: View {
     let playbackID: String
 
     @Environment(\.displayScale) private var displayScale
-    @State private var frameIndex = 0
+
+    @State private var playback: AnimatedRasterPlaybackSession?
+    @State private var frontCGImage: CGImage?
 
     var body: some View {
         GeometryReader { geo in
@@ -15,8 +17,8 @@ struct GifPlaybackView: View {
             let canvasW = maxW * fit
             let canvasH = maxH * fit
             Group {
-                if gif.frames.indices.contains(frameIndex) {
-                    Image(decorative: gif.frames[frameIndex], scale: displayScale, orientation: .up)
+                if let frontCGImage {
+                    Image(decorative: frontCGImage, scale: displayScale, orientation: .up)
                         .resizable()
                         .interpolation(.high)
                         .scaledToFit()
@@ -25,26 +27,49 @@ struct GifPlaybackView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
-        .task(id: playbackID) {
-            await runPlayback()
+        .onDisappear {
+            playback = nil
+            frontCGImage = nil
+        }
+        .task(id: playbackID + gif.sourceURL.absoluteString) {
+            await run(with: gif)
         }
     }
 
     @MainActor
-    private func runPlayback() async {
-        guard gif.frames.count > 1 else { return }
+    private func run(with gif: AnimatedGIF) async {
+        guard let sess = try? AnimatedRasterPlaybackSession(descriptor: gif) else {
+            frontCGImage = nil
+            return
+        }
+        playback = sess
+        defer {
+            if playback === sess { playback = nil }
+        }
+
+        let firstPixel = await Task.detached(priority: .utility) {
+            try? sess.decodedFrame(forLogicalIndex: 0)
+        }.value
+        if let firstPixel {
+            frontCGImage = firstPixel
+        }
+
+        guard gif.frameCount > 1 else { return }
+
         var idx = 0
         while !Task.isCancelled {
-            let delay = idx < gif.delays.count ? gif.delays[idx] : 0.1
-            let seconds = max(delay, 1.0 / 60.0)
+            let pause = sess.delayAfterFrame(idx)
             do {
-                try await Task.sleep(for: .seconds(seconds), clock: .continuous)
+                try await Task.sleep(for: .seconds(pause), clock: .continuous)
             } catch {
                 break
             }
             guard !Task.isCancelled else { break }
-            idx = (idx + 1) % gif.frames.count
-            frameIndex = idx
+            idx = (idx + 1) % gif.frameCount
+            let cg = await Task.detached(priority: .utility) {
+                try? sess.decodedFrame(forLogicalIndex: idx)
+            }.value
+            if let cg { frontCGImage = cg }
         }
     }
 }

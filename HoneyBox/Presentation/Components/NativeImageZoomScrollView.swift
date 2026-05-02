@@ -1,14 +1,44 @@
 import SwiftUI
 import UIKit
 
-private final class LayoutSyncScrollView: UIScrollView {
-    var onCommitLayout: ((LayoutSyncScrollView) -> Void)?
+// MARK: - Photos-style zoom helpers
+
+private func bindImageViewBoundsToViewport(_ scrollView: UIScrollView, imageView: UIImageView) {
+    guard scrollView.zoomScale <= 1.001 else { return }
+    let b = scrollView.bounds
+    guard b.width > 1, b.height > 1 else { return }
+    imageView.frame = CGRect(origin: .zero, size: b.size)
+    scrollView.contentSize = b.size
+    scrollView.contentInset = .zero
+    scrollView.contentOffset = .zero
+}
+
+private func insetZoomSubviewIfSmallerThanBounds(_ scrollView: UIScrollView, imageView: UIImageView) {
+    let outer = scrollView.bounds.size
+    guard outer.width > 0, outer.height > 0 else { return }
+    let inner = imageView.frame.size
+    let lx = max((outer.width - inner.width) * 0.5, 0)
+    let ly = max((outer.height - inner.height) * 0.5, 0)
+    scrollView.contentInset = UIEdgeInsets(top: ly, left: lx, bottom: ly, right: lx)
+}
+
+private func displayScale(for scrollView: UIScrollView) -> CGFloat {
+    let s = scrollView.traitCollection.displayScale
+    if s > 0 { return s }
+    let c = UITraitCollection.current.displayScale
+    return c > 0 ? c : 1
+}
+
+private final class LayoutReportingScrollView: UIScrollView {
+    var onBoundsChange: ((LayoutReportingScrollView) -> Void)?
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        onCommitLayout?(self)
+        onBoundsChange?(self)
     }
 }
+
+// MARK: - Still image
 
 struct StaticCGImageZoomView: UIViewRepresentable {
     let cgImage: CGImage
@@ -20,30 +50,26 @@ struct StaticCGImageZoomView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UIScrollView {
-        let sv = LayoutSyncScrollView()
+        let sv = LayoutReportingScrollView()
         sv.delegate = context.coordinator
         sv.backgroundColor = .black
         sv.showsHorizontalScrollIndicator = false
         sv.showsVerticalScrollIndicator = false
         sv.bouncesZoom = true
-        sv.minimumZoomScale = 1
-        sv.maximumZoomScale = 4
         sv.alwaysBounceVertical = false
         sv.alwaysBounceHorizontal = false
         sv.contentInsetAdjustmentBehavior = .never
+        sv.minimumZoomScale = 1
+        sv.maximumZoomScale = 4
         context.coordinator.scrollView = sv
         context.coordinator.imageView.contentMode = .scaleAspectFit
         sv.addSubview(context.coordinator.imageView)
-
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
         sv.addGestureRecognizer(doubleTap)
-
-        sv.onCommitLayout = { [weak c = context.coordinator] scroll in
-            c?.layoutImage(in: scroll)
-            c?.recenter(scroll)
+        sv.onBoundsChange = { [weak c = context.coordinator] s in
+            c?.viewportDidResize(s)
         }
-
         return sv
     }
 
@@ -52,25 +78,23 @@ struct StaticCGImageZoomView: UIViewRepresentable {
         c.parentScrollLocked = $parentScrollLocked
         c.isActive = isActive
 
-        let scale = UIScreen.main.scale
-        let img = UIImage(cgImage: cgImage, scale: scale, orientation: .up)
+        let pts = displayScale(for: scrollView)
+        let img = UIImage(cgImage: cgImage, scale: pts, orientation: .up)
         if c.imageView.image?.cgImage !== cgImage {
             c.imageView.image = img
-            c.lastLayoutBounds = .zero
+            scrollView.setZoomScale(1, animated: false)
         }
 
         if !isActive, scrollView.zoomScale > 1.001 {
             scrollView.setZoomScale(1, animated: false)
         }
 
-        c.layoutImage(in: scrollView)
-        c.recenter(scrollView)
+        c.syncLayout(scrollView)
         c.syncLock(scrollView)
 
         scrollView.layoutIfNeeded()
         if scrollView.bounds.width > 1, scrollView.bounds.height > 1 {
-            c.layoutImage(in: scrollView)
-            c.recenter(scrollView)
+            c.syncLayout(scrollView)
         }
     }
 
@@ -79,7 +103,6 @@ struct StaticCGImageZoomView: UIViewRepresentable {
         let imageView = UIImageView()
         var parentScrollLocked: Binding<Bool>?
         var isActive: Bool = true
-        var lastLayoutBounds: CGSize = .zero
 
         @objc func handleDoubleTap(_: UITapGestureRecognizer) {
             guard let sv = scrollView else { return }
@@ -90,25 +113,21 @@ struct StaticCGImageZoomView: UIViewRepresentable {
             }
         }
 
-        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        func viewForZooming(in _: UIScrollView) -> UIView? {
             imageView
         }
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
-            if scrollView.zoomScale <= 1.001 {
-                lastLayoutBounds = .zero
-                layoutImage(in: scrollView)
-            }
-            recenter(scrollView)
+            insetZoomSubviewIfSmallerThanBounds(scrollView, imageView: imageView)
             syncLock(scrollView)
         }
 
         func scrollViewDidEndZooming(_ scrollView: UIScrollView, with _: UIView?, atScale scale: CGFloat) {
             if scale <= 1.001 {
-                lastLayoutBounds = .zero
-                layoutImage(in: scrollView)
+                bindImageViewBoundsToViewport(scrollView, imageView: imageView)
+                scrollView.contentInset = .zero
             }
-            recenter(scrollView)
+            insetZoomSubviewIfSmallerThanBounds(scrollView, imageView: imageView)
             syncLock(scrollView)
         }
 
@@ -116,73 +135,37 @@ struct StaticCGImageZoomView: UIViewRepresentable {
             syncLock(scrollView)
         }
 
+        func viewportDidResize(_ scrollView: UIScrollView) {
+            syncLayout(scrollView)
+        }
+
+        func syncLayout(_ scrollView: UIScrollView) {
+            if scrollView.zoomScale <= 1.001 {
+                bindImageViewBoundsToViewport(scrollView, imageView: imageView)
+            } else {
+                insetZoomSubviewIfSmallerThanBounds(scrollView, imageView: imageView)
+            }
+        }
+
         func syncLock(_ scrollView: UIScrollView) {
             guard let parentScrollLocked else { return }
-            if isActive {
-                parentScrollLocked.wrappedValue = scrollView.zoomScale > 1.01
-            } else {
-                parentScrollLocked.wrappedValue = false
-            }
-        }
-
-        func layoutImage(in scrollView: UIScrollView) {
-            let bounds = scrollView.bounds
-            guard bounds.width > 1, bounds.height > 1, let img = imageView.image else { return }
-
-            let zoomed = scrollView.zoomScale > 1.001
-            if zoomed {
-                recenter(scrollView)
+            if !isActive {
+                DispatchQueue.main.async {
+                    if parentScrollLocked.wrappedValue { parentScrollLocked.wrappedValue = false }
+                }
                 return
             }
-
-            let sameBounds = abs(bounds.width - lastLayoutBounds.width) < 0.5 && abs(bounds.height - lastLayoutBounds.height) < 0.5
-            if sameBounds {
-                recenter(scrollView)
-                return
+            let locked = scrollView.zoomScale > 1.01
+            DispatchQueue.main.async {
+                if parentScrollLocked.wrappedValue != locked {
+                    parentScrollLocked.wrappedValue = locked
+                }
             }
-            lastLayoutBounds = bounds.size
-
-            let iw = img.size.width
-            let ih = img.size.height
-            guard iw > 0, ih > 0 else { return }
-
-            let widthScale = bounds.width / iw
-            let heightScale = bounds.height / ih
-            let fit = min(widthScale, heightScale)
-            let fw = iw * fit
-            let fh = ih * fit
-
-            let b = scrollView.bounds.size
-            let contentW = max(fw, b.width)
-            let contentH = max(fh, b.height)
-            let ox = (contentW - fw) * 0.5
-            let oy = (contentH - fh) * 0.5
-            imageView.frame = CGRect(x: ox, y: oy, width: fw, height: fh)
-            scrollView.contentSize = CGSize(width: contentW, height: contentH)
-            scrollView.contentInset = .zero
-            scrollView.contentOffset = .zero
-        }
-
-        func recenter(_ scrollView: UIScrollView) {
-            if scrollView.zoomScale <= 1.001 {
-                scrollView.contentInset = .zero
-                return
-            }
-            let iv = imageView
-            let W = scrollView.bounds.width
-            let H = scrollView.bounds.height
-            let w = iv.frame.width
-            let h = iv.frame.height
-            guard w > 0, h > 0 else {
-                scrollView.contentInset = .zero
-                return
-            }
-            let insetX = max((W - w) * 0.5, 0)
-            let insetY = max((H - h) * 0.5, 0)
-            scrollView.contentInset = UIEdgeInsets(top: insetY, left: insetX, bottom: insetY, right: insetX)
         }
     }
 }
+
+// MARK: - Animated GIF / raster
 
 struct AnimatedRasterZoomView: UIViewRepresentable {
     let gif: AnimatedGIF
@@ -195,28 +178,26 @@ struct AnimatedRasterZoomView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UIScrollView {
-        let sv = LayoutSyncScrollView()
+        let sv = LayoutReportingScrollView()
         sv.delegate = context.coordinator
         sv.backgroundColor = .black
         sv.showsHorizontalScrollIndicator = false
         sv.showsVerticalScrollIndicator = false
         sv.bouncesZoom = true
+        sv.alwaysBounceVertical = false
+        sv.alwaysBounceHorizontal = false
+        sv.contentInsetAdjustmentBehavior = .never
         sv.minimumZoomScale = 1
         sv.maximumZoomScale = 4
-        sv.contentInsetAdjustmentBehavior = .never
         context.coordinator.scrollView = sv
         context.coordinator.imageView.contentMode = .scaleAspectFit
         sv.addSubview(context.coordinator.imageView)
-
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(AnimatedCoordinator.handleDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
         sv.addGestureRecognizer(doubleTap)
-
-        sv.onCommitLayout = { [weak c = context.coordinator] scroll in
-            c?.layoutCanvas(in: scroll)
-            c?.recenter(scroll)
+        sv.onBoundsChange = { [weak c = context.coordinator] s in
+            c?.viewportDidResize(s)
         }
-
         return sv
     }
 
@@ -230,8 +211,9 @@ struct AnimatedRasterZoomView: UIViewRepresentable {
             c.stopAnimation()
         } else if c.playbackID != playbackID {
             c.playbackID = playbackID
+            scrollView.setZoomScale(1, animated: false)
             c.restartAnimation()
-        } else if c.stepTimer == nil && gif.frames.count > 1 {
+        } else if c.stepTimer == nil, gif.frameCount > 1 {
             c.restartAnimation()
         }
 
@@ -239,14 +221,12 @@ struct AnimatedRasterZoomView: UIViewRepresentable {
             scrollView.setZoomScale(1, animated: false)
         }
 
-        c.layoutCanvas(in: scrollView)
-        c.recenter(scrollView)
+        c.syncLayout(scrollView)
         c.syncLock(scrollView)
 
         scrollView.layoutIfNeeded()
         if scrollView.bounds.width > 1, scrollView.bounds.height > 1 {
-            c.layoutCanvas(in: scrollView)
-            c.recenter(scrollView)
+            c.syncLayout(scrollView)
         }
     }
 
@@ -261,9 +241,11 @@ struct AnimatedRasterZoomView: UIViewRepresentable {
         var isActive: Bool = true
         var gif: AnimatedGIF?
         var playbackID: String = ""
-        private var frameIndex: Int = 0
+
+        private var frameIndex = 0
+        private var decodeGeneration = 0
         var stepTimer: Timer?
-        var lastLayoutBounds: CGSize = .zero
+        private var playback: AnimatedRasterPlaybackSession?
 
         @objc func handleDoubleTap(_: UITapGestureRecognizer) {
             guard let sv = scrollView else { return }
@@ -274,25 +256,21 @@ struct AnimatedRasterZoomView: UIViewRepresentable {
             }
         }
 
-        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        func viewForZooming(in _: UIScrollView) -> UIView? {
             imageView
         }
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
-            if scrollView.zoomScale <= 1.001 {
-                lastLayoutBounds = .zero
-                layoutCanvas(in: scrollView)
-            }
-            recenter(scrollView)
+            insetZoomSubviewIfSmallerThanBounds(scrollView, imageView: imageView)
             syncLock(scrollView)
         }
 
         func scrollViewDidEndZooming(_ scrollView: UIScrollView, with _: UIView?, atScale scale: CGFloat) {
             if scale <= 1.001 {
-                lastLayoutBounds = .zero
-                layoutCanvas(in: scrollView)
+                bindImageViewBoundsToViewport(scrollView, imageView: imageView)
+                scrollView.contentInset = .zero
             }
-            recenter(scrollView)
+            insetZoomSubviewIfSmallerThanBounds(scrollView, imageView: imageView)
             syncLock(scrollView)
         }
 
@@ -300,98 +278,85 @@ struct AnimatedRasterZoomView: UIViewRepresentable {
             syncLock(scrollView)
         }
 
+        func viewportDidResize(_ scrollView: UIScrollView) {
+            syncLayout(scrollView)
+        }
+
+        func syncLayout(_ scrollView: UIScrollView) {
+            if scrollView.zoomScale <= 1.001 {
+                bindImageViewBoundsToViewport(scrollView, imageView: imageView)
+            } else {
+                insetZoomSubviewIfSmallerThanBounds(scrollView, imageView: imageView)
+            }
+        }
+
         func syncLock(_ scrollView: UIScrollView) {
             guard let parentScrollLocked else { return }
-            if isActive {
-                parentScrollLocked.wrappedValue = scrollView.zoomScale > 1.01
-            } else {
-                parentScrollLocked.wrappedValue = false
-            }
-        }
-
-        func layoutCanvas(in scrollView: UIScrollView) {
-            guard let gif else { return }
-            let bounds = scrollView.bounds
-            guard bounds.width > 1, bounds.height > 1 else { return }
-
-            if scrollView.zoomScale > 1.001 {
-                recenter(scrollView)
+            if !isActive {
+                DispatchQueue.main.async {
+                    if parentScrollLocked.wrappedValue { parentScrollLocked.wrappedValue = false }
+                }
                 return
             }
-
-            let sameBounds = abs(bounds.width - lastLayoutBounds.width) < 0.5 && abs(bounds.height - lastLayoutBounds.height) < 0.5
-            if sameBounds {
-                recenter(scrollView)
-                return
+            let locked = scrollView.zoomScale > 1.01
+            DispatchQueue.main.async {
+                if parentScrollLocked.wrappedValue != locked {
+                    parentScrollLocked.wrappedValue = locked
+                }
             }
-            lastLayoutBounds = bounds.size
-
-            let screenScale = UIScreen.main.scale
-            let maxW = max(gif.boundsPixelWidth / screenScale, 1)
-            let maxH = max(gif.boundsPixelHeight / screenScale, 1)
-            let scale = min(bounds.width / maxW, bounds.height / maxH)
-            let cw = maxW * scale
-            let ch = maxH * scale
-
-            let b = scrollView.bounds.size
-            let contentW = max(cw, b.width)
-            let contentH = max(ch, b.height)
-            let ox = (contentW - cw) * 0.5
-            let oy = (contentH - ch) * 0.5
-            imageView.frame = CGRect(x: ox, y: oy, width: cw, height: ch)
-            scrollView.contentSize = CGSize(width: contentW, height: contentH)
-            scrollView.contentInset = .zero
-            scrollView.contentOffset = .zero
-        }
-
-        func recenter(_ scrollView: UIScrollView) {
-            if scrollView.zoomScale <= 1.001 {
-                scrollView.contentInset = .zero
-                return
-            }
-            let iv = imageView
-            let W = scrollView.bounds.width
-            let H = scrollView.bounds.height
-            let w = iv.frame.width
-            let h = iv.frame.height
-            guard w > 0, h > 0 else {
-                scrollView.contentInset = .zero
-                return
-            }
-            let insetX = max((W - w) * 0.5, 0)
-            let insetY = max((H - h) * 0.5, 0)
-            scrollView.contentInset = UIEdgeInsets(top: insetY, left: insetX, bottom: insetY, right: insetX)
         }
 
         func restartAnimation() {
             stopAnimation()
-            lastLayoutBounds = .zero
+            playback = nil
+            decodeGeneration &+= 1
             guard let gif else {
                 imageView.image = nil
                 return
             }
-            if gif.frames.count <= 1 {
-                if let first = gif.frames.first {
-                    imageView.image = UIImage(cgImage: first, scale: UIScreen.main.scale, orientation: .up)
-                }
+            playback = try? AnimatedRasterPlaybackSession(descriptor: gif)
+            guard let sv = scrollView else { return }
+            let pts = displayScale(for: sv)
+            if gif.frameCount <= 1 {
+                decodeAndAssignFrame(gif: gif, viewportScale: pts, logicalIndex: 0, generation: decodeGeneration)
+                bindImageViewBoundsToViewport(sv, imageView: imageView)
                 return
             }
             frameIndex = 0
-            applyFrame(gif, index: 0)
+            decodeAndAssignFrame(gif: gif, viewportScale: pts, logicalIndex: 0, generation: decodeGeneration)
+            bindImageViewBoundsToViewport(sv, imageView: imageView)
             scheduleStep()
         }
 
-        private func applyFrame(_ gif: AnimatedGIF, index: Int) {
-            guard gif.frames.indices.contains(index) else { return }
-            imageView.image = UIImage(cgImage: gif.frames[index], scale: UIScreen.main.scale, orientation: .up)
+\
+        private func decodeAndAssignFrame(gif: AnimatedGIF, viewportScale: CGFloat, logicalIndex: Int, generation: Int) {
+            let session = playback
+            DispatchQueue.global(qos: .userInitiated).async {
+                let cg: CGImage?
+                if let session {
+                    cg = try? session.decodedFrame(forLogicalIndex: logicalIndex)
+                } else {
+                    cg = try? gif.decodeFrame(at: logicalIndex)
+                }
+                guard let cg else { return }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    guard generation == self.decodeGeneration else { return }
+                    imageView.image = UIImage(cgImage: cg, scale: viewportScale, orientation: .up)
+                }
+            }
         }
 
         private func scheduleStep() {
             stepTimer?.invalidate()
-            guard let gif, gif.frames.count > 1 else { return }
+            guard let gif, gif.frameCount > 1 else { return }
             let idx = frameIndex
-            let delay = idx < gif.delays.count ? gif.delays[idx] : 0.1
-            let seconds = max(delay, 1.0 / 60.0)
+            let seconds: TimeInterval
+            if let sess = playback {
+                seconds = sess.delayAfterFrame(idx)
+            } else {
+                seconds = gif.delay(afterFrame: idx)
+            }
             stepTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
                 self?.advance()
             }
@@ -401,15 +366,17 @@ struct AnimatedRasterZoomView: UIViewRepresentable {
         }
 
         private func advance() {
-            guard let gif, gif.frames.count > 1 else { return }
-            frameIndex = (frameIndex + 1) % gif.frames.count
-            applyFrame(gif, index: frameIndex)
+            guard let gif, gif.frameCount > 1, let sv = scrollView else { return }
+            frameIndex = (frameIndex + 1) % gif.frameCount
+            let gen = decodeGeneration
+            decodeAndAssignFrame(gif: gif, viewportScale: displayScale(for: sv), logicalIndex: frameIndex, generation: gen)
             scheduleStep()
         }
 
         func stopAnimation() {
             stepTimer?.invalidate()
             stepTimer = nil
+            playback = nil
         }
 
         deinit {
