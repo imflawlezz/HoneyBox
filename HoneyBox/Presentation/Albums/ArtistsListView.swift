@@ -12,7 +12,7 @@ struct ArtistsListView: View {
 
     var body: some View {
         Group {
-            if env.indexSnapshot.authors.isEmpty {
+            if env.librarySnapshot.authors.isEmpty {
                 EmptyStateView(
                     systemImage: "person.2",
                     title: "No artists yet",
@@ -21,7 +21,7 @@ struct ArtistsListView: View {
                 .frame(maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(env.indexSnapshot.authors) { author in
+                    ForEach(env.librarySnapshot.authors) { author in
                         NavigationLink {
                             ArtistAlbumsView(env: env, authorId: author.id, authorName: author.name)
                         } label: {
@@ -107,16 +107,15 @@ struct ArtistsListView: View {
         } message: {
             Text("This will delete the artist, all albums, and all photos from this device.")
         }
-        .task { await env.refreshIndex() }
+        .task { await env.refreshLibrarySnapshot() }
     }
 
     private func createArtist() async {
         let name = newArtistName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         do {
-            _ = try await env.index.createAuthor(displayName: name)
+            _ = try await env.createAuthor(displayName: name)
             newArtistName = ""
-            await env.refreshIndex()
         } catch {
         }
     }
@@ -126,8 +125,7 @@ struct ArtistsListView: View {
         let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         do {
-            try await env.index.renameAuthor(authorId: id, newName: name)
-            await env.refreshIndex()
+            try await env.renameAuthor(authorId: id, newName: name)
         } catch {
         }
         renameAuthorId = nil
@@ -137,9 +135,8 @@ struct ArtistsListView: View {
     private func deleteArtistCascade() async {
         guard let id = deleteAuthorId else { return }
         do {
-            try await env.index.deleteAuthorCascade(authorId: id)
+            try await env.deleteAuthorCascade(authorId: id)
             env.invalidateImageCaches()
-            await env.refreshIndex()
         } catch {
         }
         deleteAuthorId = nil
@@ -173,9 +170,9 @@ private struct AuthorAvatarView: View {
                 cg = nil
                 return
             }
-            let url = StoragePaths.authorDirectory(root: env.storage.rootURL, authorId: author.id)
+            let url = env.authorDirectoryURL(authorId: author.id)
                 .appendingPathComponent(file, isDirectory: false)
-            cg = try? await env.imageLoader.loadDownsampledCGImage(url: url, maxPixel: 256)
+            cg = try? await env.images.loadDownsampledCGImage(url: url, maxPixel: 256)
         }
     }
 }

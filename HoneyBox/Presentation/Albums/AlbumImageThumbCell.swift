@@ -24,7 +24,7 @@ struct AlbumImageThumbCell: View {
         .clipped()
         .task(id: fileName) {
             let ref = ImageRef(authorId: authorId, albumId: albumId, fileName: fileName)
-            cg = try? await env.imageLoader.loadThumbnailCGImage(
+            cg = try? await env.images.loadThumbnailCGImage(
                 authorId: authorId,
                 albumId: albumId,
                 thumbFileName: ref.thumbnailFileName,

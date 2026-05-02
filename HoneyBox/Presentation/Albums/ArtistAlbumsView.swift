@@ -20,11 +20,11 @@ struct ArtistAlbumsView: View {
 
     private var albums: [AlbumSummaryDTO] {
         let sort: AlbumsSortOrder = sortLatest ? .latestFirst : .oldestFirst
-        var list = env.indexSnapshot.albumsByAuthor[authorId] ?? []
+        var list = env.librarySnapshot.albumsByAuthor[authorId] ?? []
         switch filter {
         case .all: break
         case .favoritesOnly:
-            let fav = Set(env.indexSnapshot.favoriteAlbums)
+            let fav = Set(env.librarySnapshot.favoriteAlbums)
             list = list.filter { fav.contains(ImageRef.globalAlbumKey(authorId: authorId, albumId: $0.id)) }
         case .notViewedOnly:
             list = list.filter { $0.lastOpenedAt == nil }
@@ -151,7 +151,7 @@ struct ArtistAlbumsView: View {
         } message: {
             Text(importMessage ?? "")
         }
-        .task { await env.refreshIndex() }
+        .task { await env.refreshLibrarySnapshot() }
         .fullScreenCover(isPresented: $showArtistImmersive, onDismiss: {
             artistImmersivePlaylist = []
         }) {
@@ -183,7 +183,7 @@ struct ArtistAlbumsView: View {
         var refs: [ImageRef] = []
         refs.reserveCapacity(256)
         for album in albums {
-            guard let meta = try? await env.index.loadAlbumMeta(authorId: authorId, albumId: album.id) else { continue }
+            guard let meta = try? await env.loadAlbumMeta(authorId: authorId, albumId: album.id) else { continue }
             for name in meta.images {
                 refs.append(ImageRef(authorId: authorId, albumId: album.id, fileName: name))
             }
@@ -204,7 +204,7 @@ struct ArtistAlbumsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if env.indexSnapshot.favoriteAlbums.contains(ImageRef.globalAlbumKey(authorId: authorId, albumId: album.id)) {
+            if env.librarySnapshot.favoriteAlbums.contains(ImageRef.globalAlbumKey(authorId: authorId, albumId: album.id)) {
                 Image(systemName: "heart.fill")
                     .foregroundStyle(.red)
             }
@@ -241,8 +241,7 @@ struct ArtistAlbumsView: View {
                 let (staged, sessionDir) = try await ImportSecurityStaging.stageFilesForImport(urls)
                 await MainActor.run { isStagingImport = false }
                 defer { ImportSecurityStaging.removeSessionDirectory(sessionDir) }
-                let report = try await env.importPipeline.importFiles(authorId: authorId, fileURLs: staged)
-                await env.refreshIndex()
+                _ = try await env.importFiles(authorId: authorId, fileURLs: staged)
             } catch {
                 await MainActor.run { isStagingImport = false }
                 await MainActor.run { importMessage = error.localizedDescription }
@@ -280,7 +279,7 @@ private struct AlbumThumbView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: album.id) {
             guard let name = album.coverThumbnailFileName else { return }
-            cg = try? await env.imageLoader.loadThumbnailCGImage(
+            cg = try? await env.images.loadThumbnailCGImage(
                 authorId: authorId,
                 albumId: album.id,
                 thumbFileName: name,
@@ -405,7 +404,7 @@ private struct AlbumMosaicCell: View {
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.6), radius: 3, x: 0, y: 1)
                     Spacer()
-                    if env.indexSnapshot.favoriteAlbums.contains(ImageRef.globalAlbumKey(authorId: authorId, albumId: album.id)) {
+                    if env.librarySnapshot.favoriteAlbums.contains(ImageRef.globalAlbumKey(authorId: authorId, albumId: album.id)) {
                         Image(systemName: "heart.fill")
                             .font(.headline.weight(.bold))
                             .foregroundStyle(.red)

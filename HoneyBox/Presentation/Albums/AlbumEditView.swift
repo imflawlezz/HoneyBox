@@ -184,7 +184,7 @@ struct AlbumEditView: View {
 
     private func load() async {
         do {
-            let m = try await env.index.loadAlbumMeta(authorId: authorId, albumId: albumId)
+            let m = try await env.loadAlbumMeta(authorId: authorId, albumId: albumId)
             await MainActor.run {
                 meta = m
                 titleDraft = m.displayTitle
@@ -196,12 +196,11 @@ struct AlbumEditView: View {
 
     private func save() async {
         do {
-            try await env.index.updateAlbumDisplayTitle(authorId: authorId, albumId: albumId, title: titleDraft)
-            try await env.index.setAlbumImageOrder(authorId: authorId, albumId: albumId, images: imagesDraft)
+            try await env.updateAlbumDisplayTitle(authorId: authorId, albumId: albumId, title: titleDraft)
+            try await env.setAlbumImageOrder(authorId: authorId, albumId: albumId, images: imagesDraft)
             for name in pendingDelete {
-                try await env.index.deleteImage(authorId: authorId, albumId: albumId, fileName: name)
+                try await env.deleteAlbumImage(authorId: authorId, albumId: albumId, fileName: name)
             }
-            await env.refreshIndex()
             dismiss()
         } catch {
             message = error.localizedDescription
@@ -218,9 +217,8 @@ struct AlbumEditView: View {
                 let (staged, sessionDir) = try await ImportSecurityStaging.stageFilesForImport(urls)
                 await MainActor.run { isStagingAppend = false }
                 defer { ImportSecurityStaging.removeSessionDirectory(sessionDir) }
-                _ = try await env.importPipeline.appendLooseImages(authorId: authorId, albumId: albumId, fileURLs: staged)
-                await env.refreshIndex()
-                let m = try await env.index.loadAlbumMeta(authorId: authorId, albumId: albumId)
+                _ = try await env.appendLooseImages(authorId: authorId, albumId: albumId, fileURLs: staged)
+                let m = try await env.loadAlbumMeta(authorId: authorId, albumId: albumId)
                 await MainActor.run {
                     meta = m
                     imagesDraft = m.images
@@ -242,11 +240,10 @@ struct AlbumEditView: View {
     }
 
     private func deleteAlbum() async {
-        let root = StoragePaths.albumDirectory(root: env.storage.rootURL, authorId: authorId, albumId: albumId)
+        let root = env.albumDirectoryURL(authorId: authorId, albumId: albumId)
         do {
-            try env.storage.removeItem(at: root)
-            try await env.index.removeAlbumSummary(authorId: authorId, albumId: albumId)
-            await env.refreshIndex()
+            try env.removeLibraryItem(at: root)
+            try await env.removeAlbumFromLibrary(authorId: authorId, albumId: albumId)
             dismiss()
         } catch {
             message = error.localizedDescription
@@ -256,9 +253,8 @@ struct AlbumEditView: View {
 
     private func deleteImage(_ name: String) async {
         do {
-            try await env.index.deleteImage(authorId: authorId, albumId: albumId, fileName: name)
-            await env.refreshIndex()
-            let m = try await env.index.loadAlbumMeta(authorId: authorId, albumId: albumId)
+            try await env.deleteAlbumImage(authorId: authorId, albumId: albumId, fileName: name)
+            let m = try await env.loadAlbumMeta(authorId: authorId, albumId: albumId)
             await MainActor.run { meta = m }
         } catch {
             message = error.localizedDescription

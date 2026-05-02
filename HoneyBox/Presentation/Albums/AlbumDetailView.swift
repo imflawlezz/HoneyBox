@@ -13,11 +13,11 @@ struct AlbumDetailView: View {
     @State private var contentWidth: CGFloat = 0
 
     private var isFavorite: Bool {
-        env.indexSnapshot.favoriteAlbums.contains(ImageRef.globalAlbumKey(authorId: authorId, albumId: albumId))
+        env.librarySnapshot.favoriteAlbums.contains(ImageRef.globalAlbumKey(authorId: authorId, albumId: albumId))
     }
 
     private var resolvedAlbumTitle: String {
-        env.indexSnapshot.albumsByAuthor[authorId]?.first(where: { $0.id == albumId })?.displayTitle
+        env.librarySnapshot.albumsByAuthor[authorId]?.first(where: { $0.id == albumId })?.displayTitle
             ?? meta?.displayTitle
             ?? albumTitle
     }
@@ -140,9 +140,8 @@ struct AlbumDetailView: View {
 
     private func load() async {
         do {
-            try await env.index.markAlbumOpened(authorId: authorId, albumId: albumId)
-            await env.refreshIndex()
-            let m = try await env.index.loadAlbumMeta(authorId: authorId, albumId: albumId)
+            try await env.markAlbumOpened(authorId: authorId, albumId: albumId)
+            let m = try await env.loadAlbumMeta(authorId: authorId, albumId: albumId)
             await MainActor.run { meta = m }
         } catch {
             await MainActor.run { meta = nil }
@@ -151,8 +150,7 @@ struct AlbumDetailView: View {
 
     private func toggleFavorite() async {
         do {
-            try await env.index.toggleFavorite(authorId: authorId, albumId: albumId)
-            await env.refreshIndex()
+            try await env.toggleAlbumFavorite(authorId: authorId, albumId: albumId)
         } catch {}
     }
 }
