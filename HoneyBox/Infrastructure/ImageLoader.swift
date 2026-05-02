@@ -289,19 +289,4 @@ final class ImageLoader: @unchecked Sendable {
     }
 }
 
-struct AnimatedGIF: Sendable {
-    var frames: [CGImage]
-    var delays: [TimeInterval]
-
-    var boundsPixelWidth: CGFloat {
-        frames.map { CGFloat($0.width) }.max() ?? 1
-    }
-
-    var boundsPixelHeight: CGFloat {
-        frames.map { CGFloat($0.height) }.max() ?? 1
-    }
-
-    var boundsAspectRatio: CGFloat {
-        boundsPixelWidth / max(boundsPixelHeight, 1)
-    }
-}
+extension ImageLoader: ImageLoading {}

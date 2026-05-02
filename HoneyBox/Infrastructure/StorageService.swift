@@ -12,7 +12,7 @@ enum StorageServiceError: Error, LocalizedError {
     }
 }
 
-final class StorageService: @unchecked Sendable {
+final class StorageService: @unchecked Sendable, LibraryFileStorage {
     let rootURL: URL
 
     init() throws {
