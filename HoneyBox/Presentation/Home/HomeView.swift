@@ -278,9 +278,9 @@ struct HomeView: View {
             try await withThrowingTaskGroup(of: (Int, URL?).self) { group in
                 for i in start..<end {
                     let item = items[i]
+                    let ext = preferredExtension(for: item)
                     group.addTask {
                         guard let data = try await item.loadTransferable(type: Data.self) else { return (i, nil) }
-                        let ext = preferredExtension(for: item)
                         let url = dir.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
                         try data.write(to: url, options: [.atomic])
                         return (i, url)
