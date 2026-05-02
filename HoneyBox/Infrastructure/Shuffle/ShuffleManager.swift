@@ -1,6 +1,6 @@
 import Foundation
 
-actor ShuffleManager {
+actor ShuffleManager: ShuffleManaging {
     private let index: IndexService
     private let images: ImageLoader
 
