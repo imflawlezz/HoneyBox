@@ -20,7 +20,10 @@ final class ZipLibraryService: Sendable, ZipLibraryManaging {
         if FileManager.default.fileExists(atPath: zipURL.path) {
             try FileManager.default.removeItem(at: zipURL)
         }
-        guard let archive = Archive(url: zipURL, accessMode: .create) else {
+        let archive: Archive
+        do {
+            archive = try Archive(url: zipURL, accessMode: .create)
+        } catch {
             throw ZipLibraryError.invalidArchive
         }
         let root = storage.rootURL
@@ -59,7 +62,10 @@ final class ZipLibraryService: Sendable, ZipLibraryManaging {
         indexService: any LibraryIndexing,
         onProgress: (@MainActor (ZipRestorePhase, Int, Int, String) -> Void)? = nil
     ) async throws {
-        guard let archive = Archive(url: zipURL, accessMode: .read) else {
+        let archive: Archive
+        do {
+            archive = try Archive(url: zipURL, accessMode: .read)
+        } catch {
             throw ZipLibraryError.invalidArchive
         }
 

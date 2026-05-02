@@ -25,7 +25,10 @@ enum ZipGalleryImport {
         zipURL: URL,
         onProgress: (@Sendable (Int, Int, String) -> Void)? = nil
     ) throws -> (files: [URL], sessionDirectory: URL) {
-        guard let archive = Archive(url: zipURL, accessMode: .read) else {
+        let archive: Archive
+        do {
+            archive = try Archive(url: zipURL, accessMode: .read)
+        } catch {
             throw ZipGalleryImportError.invalidArchive
         }
 
