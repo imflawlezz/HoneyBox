@@ -42,7 +42,7 @@ final class HoneyBoxEnvironment: ObservableObject {
     static func bootstrap() async throws -> HoneyBoxEnvironment {
         let storage = try StorageService()
         try storage.ensureLayoutExists()
-        let index = try await IndexService(storage: storage)
+        let index = try IndexService(storage: storage)
         let imageLoader = ImageLoader(storage: storage)
         let importPipeline = ImportService(storage: storage, index: index, images: imageLoader)
         let zip = ZipLibraryService(storage: storage)

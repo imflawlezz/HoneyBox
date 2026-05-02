@@ -1,12 +1,11 @@
 import Foundation
 
-struct ImageRef: Hashable, Codable, Sendable {
+struct ImageRef: Codable, Sendable {
     var authorId: String
     var albumId: String
     var fileName: String
 
-    var thumbnailFileName: String {
-        let ext = (fileName as NSString).pathExtension.lowercased()
+    nonisolated var thumbnailFileName: String {
         let base = (fileName as NSString).deletingPathExtension
         if base.hasPrefix("img_") {
             let suffix = String(base.dropFirst("img_".count))
@@ -16,12 +15,26 @@ struct ImageRef: Hashable, Codable, Sendable {
     }
 }
 
+extension ImageRef: Equatable {
+    nonisolated static func == (lhs: ImageRef, rhs: ImageRef) -> Bool {
+        lhs.authorId == rhs.authorId && lhs.albumId == rhs.albumId && lhs.fileName == rhs.fileName
+    }
+}
+
+extension ImageRef: Hashable {
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(authorId)
+        hasher.combine(albumId)
+        hasher.combine(fileName)
+    }
+}
+
 extension ImageRef {
-    static func globalAlbumKey(authorId: String, albumId: String) -> String {
+    nonisolated static func globalAlbumKey(authorId: String, albumId: String) -> String {
         "\(authorId)/\(albumId)"
     }
 
-    var globalAlbumKey: String {
+    nonisolated var globalAlbumKey: String {
         Self.globalAlbumKey(authorId: authorId, albumId: albumId)
     }
 }

@@ -13,36 +13,36 @@ enum StorageServiceError: Error, LocalizedError {
 }
 
 final class StorageService: @unchecked Sendable, LibraryFileStorage {
-    let rootURL: URL
+    nonisolated let rootURL: URL
 
-    init() throws {
+    nonisolated init() throws {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             throw StorageServiceError.noApplicationSupport
         }
         rootURL = appSupport.standardizedFileURL
     }
 
-    func ensureLayoutExists() throws {
+    nonisolated func ensureLayoutExists() throws {
         try FileManager.default.createDirectory(at: StoragePaths.authorsDirectory(root: rootURL), withIntermediateDirectories: true)
         try applyFileProtectionIfNeeded(at: rootURL)
     }
 
-    private func applyFileProtectionIfNeeded(at url: URL) throws {
+    nonisolated private func applyFileProtectionIfNeeded(at url: URL) throws {
         try FileManager.default.setAttributes(
             [FileAttributeKey.protectionKey: FileProtectionType.complete],
             ofItemAtPath: url.path
         )
     }
 
-    func readDataIfPresent(at url: URL) -> Data? {
+    nonisolated func readDataIfPresent(at url: URL) -> Data? {
         try? Data(contentsOf: url)
     }
 
-    func readData(at url: URL) throws -> Data {
+    nonisolated func readData(at url: URL) throws -> Data {
         try Data(contentsOf: url)
     }
 
-    func atomicWrite(_ data: Data, to destination: URL) throws {
+    nonisolated func atomicWrite(_ data: Data, to destination: URL) throws {
         let directory = destination.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let temp = directory.appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).tmp", isDirectory: false)
@@ -54,13 +54,13 @@ final class StorageService: @unchecked Sendable, LibraryFileStorage {
         }
     }
 
-    func removeItem(at url: URL) throws {
+    nonisolated func removeItem(at url: URL) throws {
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
     }
 
-    func copyItem(from source: URL, to destination: URL) throws {
+    nonisolated func copyItem(from source: URL, to destination: URL) throws {
         let parent = destination.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: destination.path) {
@@ -69,7 +69,7 @@ final class StorageService: @unchecked Sendable, LibraryFileStorage {
         try FileManager.default.copyItem(at: source, to: destination)
     }
 
-    func moveItem(from source: URL, to destination: URL) throws {
+    nonisolated func moveItem(from source: URL, to destination: URL) throws {
         let parent = destination.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: destination.path) {
@@ -78,15 +78,15 @@ final class StorageService: @unchecked Sendable, LibraryFileStorage {
         try FileManager.default.moveItem(at: source, to: destination)
     }
 
-    func fileExists(at url: URL) -> Bool {
+    nonisolated func fileExists(at url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.path)
     }
 
-    func fileSize(at url: URL) -> Int64? {
+    nonisolated func fileSize(at url: URL) -> Int64? {
         (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map { Int64($0) }
     }
 
-    func createDirectory(at url: URL) throws {
+    nonisolated func createDirectory(at url: URL) throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 }

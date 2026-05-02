@@ -8,7 +8,8 @@ enum ImageLoaderError: Error {
 }
 
 final class ImageLoader: @unchecked Sendable {
-    private let storage: StorageService
+    /// File layout only; safe to use from background (e.g. import thumbnails).
+    nonisolated private let storage: StorageService
     private let thumbCache = NSCache<NSString, UIImage>()
     private let fullCache = NSCache<NSString, UIImage>()
     private let queue = DispatchQueue(label: "dev.imflawlezz.HoneyBox.ImageLoader", qos: .userInitiated, attributes: .concurrent)
@@ -102,20 +103,25 @@ final class ImageLoader: @unchecked Sendable {
         try await decodeDownsampled(url: url, maxPixel: maxPixel)?.cgImage
     }
 
-    func loadAnimatedRaster(ref: ImageRef, maxFrames: Int = 30_000) async throws -> AnimatedGIF? {
+    func loadAnimatedRaster(ref: ImageRef, maxFrames: Int = AnimatedRasterDecoder.defaultMaxPlaybackFrames) async throws -> AnimatedGIF? {
         let url = imageURL(authorId: ref.authorId, albumId: ref.albumId, fileName: ref.fileName)
         let ext = (ref.fileName as NSString).pathExtension.lowercased()
         guard Self.supportsAnimatedPlaybackExtension(ext) else { return nil }
         return try await withCheckedThrowingContinuation { cont in
             queue.async {
                 cont.resume(with: Result {
-                    try Self.decodeAnimatedRaster(url: url, ext: ext, maxFrames: maxFrames)
+                    try AnimatedRasterDecoder.loadPlaybackMetadata(
+                        url: url,
+                        ext: ext,
+                        maxPlaybackFrames: maxFrames,
+                        maxDecodedPixelDimension: 2048
+                    )
                 })
             }
         }
     }
 
-    func generateThumbnailJPEG(fromImageAt source: URL, to destination: URL, maxPixel: CGFloat = 768, quality: CGFloat = 0.88) throws {
+    nonisolated func generateThumbnailJPEG(fromImageAt source: URL, to destination: URL, maxPixel: CGFloat = 768, quality: CGFloat = 0.88) throws {
         try storage.createDirectory(at: destination.deletingLastPathComponent())
         guard let data = try Self.downsampledJPEGData(url: source, maxPixel: maxPixel, quality: quality) else {
             throw ImageLoaderError.cannotDecodeImage
@@ -170,80 +176,7 @@ final class ImageLoader: @unchecked Sendable {
         }
     }
 
-    private static let animatedRasterAbsoluteFrameCap = 40_000
-
-    private static func decodeAnimatedRaster(url: URL, ext: String, maxFrames: Int) throws -> AnimatedGIF? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            throw ImageLoaderError.cannotCreateImageSource
-        }
-        let count = CGImageSourceGetCount(source)
-        guard count > 0 else { return nil }
-        switch ext.lowercased() {
-        case "webp", "png":
-            guard count > 1 else { return nil }
-        default:
-            break
-        }
-        let limit = min(count, maxFrames, animatedRasterAbsoluteFrameCap)
-        var frames: [CGImage] = []
-        var delays: [TimeInterval] = []
-        frames.reserveCapacity(limit)
-        delays.reserveCapacity(limit)
-        for i in 0..<limit {
-            guard let cg = CGImageSourceCreateImageAtIndex(source, i, nil) else { continue }
-            let delay = Self.frameDelay(source: source, index: i)
-            frames.append(cg)
-            delays.append(delay)
-        }
-        guard !frames.isEmpty else { return nil }
-        if delays.allSatisfy({ $0 <= 0 }) {
-            delays = Array(repeating: 0.1, count: frames.count)
-        }
-        return AnimatedGIF(frames: frames, delays: delays)
-    }
-
-    private static func frameDelay(source: CGImageSource, index: Int) -> TimeInterval {
-        guard let props = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [AnyHashable: Any] else {
-            return 0.1
-        }
-        if let gif = props[kCGImagePropertyGIFDictionary as AnyHashable] as? [AnyHashable: Any] {
-            let u = double(from: gif, key: kCGImagePropertyGIFUnclampedDelayTime as AnyHashable)
-            let c = double(from: gif, key: kCGImagePropertyGIFDelayTime as AnyHashable)
-            let d = u ?? c ?? 0.1
-            return d < 0.02 ? 0.1 : d
-        }
-        if let webp = props[kCGImagePropertyWebPDictionary as AnyHashable] as? [AnyHashable: Any] {
-            let u = double(from: webp, key: kCGImagePropertyWebPUnclampedDelayTime as AnyHashable)
-            let c = double(from: webp, key: kCGImagePropertyWebPDelayTime as AnyHashable)
-            let d = u ?? c ?? 0.1
-            return d < 0.02 ? 0.1 : d
-        }
-        if let u = double(from: props, key: kCGImagePropertyAPNGUnclampedDelayTime as AnyHashable) {
-            let d = u < 0.02 ? 0.1 : u
-            return d
-        }
-        if let c = double(from: props, key: kCGImagePropertyAPNGDelayTime as AnyHashable) {
-            let d = c < 0.02 ? 0.1 : c
-            return d
-        }
-        if let png = props[kCGImagePropertyPNGDictionary as AnyHashable] as? [AnyHashable: Any] {
-            if let u = double(from: png, key: kCGImagePropertyAPNGUnclampedDelayTime as AnyHashable) {
-                return u < 0.02 ? 0.1 : u
-            }
-            if let c = double(from: png, key: kCGImagePropertyAPNGDelayTime as AnyHashable) {
-                return c < 0.02 ? 0.1 : c
-            }
-        }
-        return 0.1
-    }
-
-    private static func double(from dict: [AnyHashable: Any], key: AnyHashable) -> Double? {
-        if let d = dict[key] as? Double { return d }
-        if let n = dict[key] as? NSNumber { return n.doubleValue }
-        return nil
-    }
-
-    private static func downsampledUIImage(url: URL, maxPixel: CGFloat) throws -> UIImage? {
+    private nonisolated static func downsampledUIImage(url: URL, maxPixel: CGFloat) throws -> UIImage? {
         guard let data = try? Data(contentsOf: url),
               let image = downsample(data: data, maxPixel: maxPixel) else {
             return nil
@@ -251,7 +184,7 @@ final class ImageLoader: @unchecked Sendable {
         return image
     }
 
-    private static func downsampledJPEGData(url: URL, maxPixel: CGFloat, quality: CGFloat) throws -> Data? {
+    private nonisolated static func downsampledJPEGData(url: URL, maxPixel: CGFloat, quality: CGFloat) throws -> Data? {
         guard let data = try? Data(contentsOf: url),
               let image = downsample(data: data, maxPixel: maxPixel),
               let jpeg = image.jpegData(compressionQuality: quality) else {
@@ -260,7 +193,7 @@ final class ImageLoader: @unchecked Sendable {
         return jpeg
     }
 
-    private static func downsample(data: Data, maxPixel: CGFloat) -> UIImage? {
+    private nonisolated static func downsample(data: Data, maxPixel: CGFloat) -> UIImage? {
         let options: [NSString: Any] = [
             kCGImageSourceShouldCache: false
         ]
