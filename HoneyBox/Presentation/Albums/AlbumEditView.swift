@@ -23,7 +23,7 @@ struct AlbumEditView: View {
 
     var body: some View {
         Group {
-            if let meta {
+            if meta != nil {
                 ScrollView {
                     VStack(spacing: 12) {
                         Form {

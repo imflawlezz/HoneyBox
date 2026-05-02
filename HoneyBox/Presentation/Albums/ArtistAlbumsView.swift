@@ -19,7 +19,6 @@ struct ArtistAlbumsView: View {
     @State private var isStagingImport = false
 
     private var albums: [AlbumSummaryDTO] {
-        let sort: AlbumsSortOrder = sortLatest ? .latestFirst : .oldestFirst
         var list = env.librarySnapshot.albumsByAuthor[authorId] ?? []
         switch filter {
         case .all: break
