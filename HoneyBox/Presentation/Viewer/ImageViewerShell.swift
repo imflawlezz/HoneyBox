@@ -37,7 +37,7 @@ struct ImageViewerShell: View {
     }
 
     private var isFavorite: Bool {
-        env.indexSnapshot.favoriteAlbums.contains(ImageRef.globalAlbumKey(authorId: authorId, albumId: albumId))
+        env.librarySnapshot.favoriteAlbums.contains(ImageRef.globalAlbumKey(authorId: authorId, albumId: albumId))
     }
 
     private var currentFileName: String? {
@@ -184,8 +184,7 @@ struct ImageViewerShell: View {
 
     private func toggleFavorite() async {
         do {
-            try await env.index.toggleFavorite(authorId: authorId, albumId: albumId)
-            await env.refreshIndex()
+            try await env.toggleAlbumFavorite(authorId: authorId, albumId: albumId)
         } catch {}
     }
 
@@ -199,8 +198,7 @@ struct ImageViewerShell: View {
     private func deleteCurrentPhoto() async {
         guard let fileName = currentFileName else { return }
         do {
-            try await env.index.deleteImage(authorId: authorId, albumId: albumId, fileName: fileName)
-            await env.refreshIndex()
+            try await env.deleteAlbumImage(authorId: authorId, albumId: albumId, fileName: fileName)
             await MainActor.run {
                 names.removeAll { $0 == fileName }
                 index = min(index, max(0, names.count - 1))
@@ -215,8 +213,7 @@ struct ImageViewerShell: View {
     private func persistContinueReading(_ value: Int) async {
         guard !names.isEmpty else { return }
         do {
-            try await env.index.setContinueReading(authorId: authorId, albumId: albumId, imageIndex: value)
-            await env.refreshIndex()
+            try await env.setContinueReading(authorId: authorId, albumId: albumId, imageIndex: value)
         } catch {}
     }
 }
@@ -248,7 +245,7 @@ private struct ImagePageView: View {
 
     private func load() async {
         let ext = (ref.fileName as NSString).pathExtension.lowercased()
-        if ImageLoader.supportsAnimatedPlaybackExtension(ext), let g = try? await env.imageLoader.loadAnimatedRaster(ref: ref) {
+        if ImageLoader.supportsAnimatedPlaybackExtension(ext), let g = try? await env.images.loadAnimatedRaster(ref: ref) {
             do { try Task.checkCancellation() } catch { return }
             await MainActor.run {
                 gif = g
@@ -256,7 +253,7 @@ private struct ImagePageView: View {
             }
             return
         }
-        let cg = try? await env.imageLoader.loadFullCGImage(ref: ref)
+        let cg = try? await env.images.loadFullCGImage(ref: ref)
         do { try Task.checkCancellation() } catch { return }
         await MainActor.run {
             still = cg

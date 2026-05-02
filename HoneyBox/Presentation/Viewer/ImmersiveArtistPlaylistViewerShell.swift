@@ -115,7 +115,7 @@ struct ImmersiveArtistPlaylistViewerShell: View {
                                 authorId: ref.authorId,
                                 authorName: authorName,
                                 albumId: ref.albumId,
-                                albumTitle: env.indexSnapshot.albumsByAuthor[ref.authorId]?.first(where: { $0.id == ref.albumId })?.displayTitle ?? ref.albumId
+                                albumTitle: env.librarySnapshot.albumsByAuthor[ref.authorId]?.first(where: { $0.id == ref.albumId })?.displayTitle ?? ref.albumId
                             )
                         } label: {
                             Image(systemName: "rectangle.stack")

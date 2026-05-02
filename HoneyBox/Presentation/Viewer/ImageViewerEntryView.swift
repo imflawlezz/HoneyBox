@@ -37,9 +37,8 @@ struct ImageViewerEntryView: View {
 
     private func load() async {
         do {
-            try await env.index.markAlbumOpened(authorId: authorId, albumId: albumId)
-            await env.refreshIndex()
-            let meta = try await env.index.loadAlbumMeta(authorId: authorId, albumId: albumId)
+            try await env.markAlbumOpened(authorId: authorId, albumId: albumId)
+            let meta = try await env.loadAlbumMeta(authorId: authorId, albumId: albumId)
             await MainActor.run { names = meta.images }
         } catch {
             await MainActor.run { failed = true }
