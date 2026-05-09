@@ -328,7 +328,6 @@ struct AnimatedRasterZoomView: UIViewRepresentable {
             scheduleStep()
         }
 
-\
         private func decodeAndAssignFrame(gif: AnimatedGIF, viewportScale: CGFloat, logicalIndex: Int, generation: Int) {
             let session = playback
             DispatchQueue.global(qos: .userInitiated).async {
