@@ -2,12 +2,17 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
+private enum ImportFilePickerIntent: Equatable {
+    case looseImages
+    case zipGallery
+}
+
 struct HomeView: View {
     @ObservedObject var env: HoneyBoxEnvironment
 
     @State private var showImportChoice = false
-    @State private var showFileImport = false
-    @State private var showZipGalleryImport = false
+    @State private var importFilePickerIntent: ImportFilePickerIntent?
+    @State private var isImportFilePickerPresented = false
     @State private var showPhotosImport = false
     @State private var pendingPhotoItems: [PhotosPickerItem] = []
     @State private var importPayload: HomeImportPayload?
@@ -90,8 +95,14 @@ struct HomeView: View {
         }
         .alert("Import from", isPresented: $showImportChoice) {
             Button("Photos") { showPhotosImport = true }
-            Button("Files") { showFileImport = true }
-            Button(".zip Gallery") { showZipGalleryImport = true }
+            Button("Files") {
+                importFilePickerIntent = .looseImages
+                isImportFilePickerPresented = true
+            }
+            Button(".zip Gallery") {
+                importFilePickerIntent = .zipGallery
+                isImportFilePickerPresented = true
+            }
             Button("Cancel", role: .cancel) {}
         }
         .photosPicker(
@@ -121,18 +132,11 @@ struct HomeView: View {
             }
         }
         .fileImporter(
-            isPresented: $showFileImport,
-            allowedContentTypes: [.image, .jpeg, .png, .gif, UTType(filenameExtension: "webp") ?? .data],
-            allowsMultipleSelection: true
+            isPresented: $isImportFilePickerPresented,
+            allowedContentTypes: importFilePickerContentTypes,
+            allowsMultipleSelection: importFilePickerAllowsMultipleSelection
         ) { result in
-            Task { await handleFileImporterResult(result) }
-        }
-        .fileImporter(
-            isPresented: $showZipGalleryImport,
-            allowedContentTypes: [.zip],
-            allowsMultipleSelection: false
-        ) { result in
-            Task { await handleZipGalleryImporterResult(result) }
+            Task { await handleImportFilePickerResult(result) }
         }
         .navigationDestination(item: $importPayload) { payload in
             ImportDestinationView(
@@ -203,7 +207,37 @@ struct HomeView: View {
         }
     }
 
-    private func handleFileImporterResult(_ result: Result<[URL], Error>) async {
+    private var importFilePickerContentTypes: [UTType] {
+        switch importFilePickerIntent {
+        case .zipGallery:
+            return [.zip]
+        case .looseImages:
+            return [.image, .jpeg, .png, .gif, UTType(filenameExtension: "webp") ?? .data]
+        case nil:
+            return [.image, .jpeg, .png, .gif, UTType(filenameExtension: "webp") ?? .data]
+        }
+    }
+
+    private var importFilePickerAllowsMultipleSelection: Bool {
+        importFilePickerIntent != .zipGallery
+    }
+
+    private func handleImportFilePickerResult(_ result: Result<[URL], Error>) async {
+        let intent = await MainActor.run {
+            let i = importFilePickerIntent
+            importFilePickerIntent = nil
+            return i
+        }
+        guard let intent else { return }
+        switch intent {
+        case .looseImages:
+            await handleLooseImageFilePickerResult(result)
+        case .zipGallery:
+            await handleZipGalleryFilePickerResult(result)
+        }
+    }
+
+    private func handleLooseImageFilePickerResult(_ result: Result<[URL], Error>) async {
         switch result {
         case .success(let urls):
             guard !urls.isEmpty else { return }
@@ -229,7 +263,7 @@ struct HomeView: View {
         }
     }
 
-    private func handleZipGalleryImporterResult(_ result: Result<[URL], Error>) async {
+    private func handleZipGalleryFilePickerResult(_ result: Result<[URL], Error>) async {
         switch result {
         case .success(let urls):
             guard let zipURL = urls.first else { return }
@@ -239,16 +273,24 @@ struct HomeView: View {
                 if started { zipURL.stopAccessingSecurityScopedResource() }
             }
             do {
-                let (files, sessionDir) = try ZipGalleryImport.extractImagesToStaging(zipURL: zipURL)
-                let suggested = zipURL.deletingPathExtension().lastPathComponent
+                let prepared = try ZipGalleryImport.prepareImport(zipURL: zipURL)
                 await MainActor.run {
                     isPreparingImport = false
-                    zipGalleryImportPayload = HomeZipGalleryImportPayload(
-                        id: UUID(),
-                        extractedImageURLs: files,
-                        stagingSessionDirectory: sessionDir,
-                        suggestedGalleryTitle: suggested
-                    )
+                    switch prepared {
+                    case .looseOrderedGallery(let files, let sessionDir, let suggested):
+                        zipGalleryImportPayload = HomeZipGalleryImportPayload(
+                            id: UUID(),
+                            extractedImageURLs: files,
+                            stagingSessionDirectory: sessionDir,
+                            suggestedGalleryTitle: suggested
+                        )
+                    case .honeyBoxNumbered(let files, let sessionDir):
+                        importPayload = HomeImportPayload(
+                            id: UUID(),
+                            urls: files,
+                            stagingSessionDirectory: sessionDir
+                        )
+                    }
                 }
             } catch {
                 await MainActor.run {
