@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var zipRestorePick: ZipRestorePick?
     @State private var message: String?
     @State private var showMessageAlert = false
+    @State private var storageStats: LibraryStorageStats?
     @AppStorage("immersiveSlideshowIntervalSeconds") private var immersiveSlideshowIntervalSeconds: Double = 2.5
 
     private var libraryBusy: Bool {
@@ -28,22 +29,6 @@ struct SettingsView: View {
                     }
             }
 
-            Section("Library") {
-                Button {
-                    showZipImporter = true
-                } label: {
-                    Label("Restore from .zip", systemImage: "arrow.up.page.on.clipboard")
-                }
-                .disabled(libraryBusy)
-
-                Button {
-                    showZipExportSheet = true
-                } label: {
-                    Label("Export .zip", systemImage: "zipper.page")
-                }
-                .disabled(libraryBusy)
-            }
-
             Section("Playback") {
                 Stepper(
                     value: $immersiveSlideshowIntervalSeconds,
@@ -57,15 +42,81 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Storage path") {
-                Text(env.libraryRootURL.path)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            Section {
+                if let storageStats {
+                    LabeledContent("Gallery items") {
+                        Text("\(storageStats.imageFileCount)")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    LabeledContent("Library size") {
+                        Text(LibraryStorageInspector.formattedByteCount(storageStats.totalByteCount))
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    HStack {
+                        Text("Calculating storage…")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+
+                if let lastBackup = LibraryBackupPreferences.lastBackupDate {
+                    LabeledContent("Last backup") {
+                        Text(LibraryBackupPreferences.formattedLastBackup(lastBackup))
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    LabeledContent("Last backup") {
+                        Text("Never")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if LibraryBackupPreferences.shouldShowBackupReminder(
+                    hasLibraryContent: (storageStats?.imageFileCount ?? 0) > 0
+                ) {
+                    let days = LibraryBackupPreferences.daysSinceLastBackup()
+                    if let days {
+                        Label(
+                            "Last backup was \(days) day\(days == 1 ? "" : "s") ago. Export a .zip to keep your library safe.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                    } else {
+                        Label(
+                            "You haven't backed up yet. Export a .zip to keep your library safe.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                    }
+                }
+
+                Button {
+                    showZipImporter = true
+                } label: {
+                    Label("Restore from .zip", systemImage: "arrow.up.page.on.clipboard")
+                }
+                .disabled(libraryBusy)
+
+                Button {
+                    showZipExportSheet = true
+                } label: {
+                    Label("Export .zip", systemImage: "zipper.page")
+                }
+                .disabled(libraryBusy)
+            } header: {
+                Text("Storage")
             }
+
         }
         .navigationTitle("Settings")
+        .task(id: env.librarySnapshot.authors.count) {
+            await refreshStorageStats()
+        }
         .fileImporter(
             isPresented: $showZipImporter,
             allowedContentTypes: [UTType.zip],
@@ -88,6 +139,7 @@ struct SettingsView: View {
                     switch result {
                     case .success(let msg):
                         message = msg
+                        Task { await refreshStorageStats() }
                     case .failure(let err):
                         message = err.localizedDescription
                     }
@@ -112,6 +164,17 @@ struct SettingsView: View {
         .onChange(of: showMessageAlert) { _, shown in
             if !shown { message = nil }
         }
+        .onChange(of: showZipExportSheet) { _, isOpen in
+            if !isOpen { Task { await refreshStorageStats() } }
+        }
+    }
+
+    private func refreshStorageStats() async {
+        let root = env.libraryRootURL
+        let stats = await Task.detached(priority: .utility) {
+            LibraryStorageInspector.inspect(root: root)
+        }.value
+        storageStats = stats
     }
 }
 
@@ -372,6 +435,7 @@ private struct ZipExportProgressSheet: View {
             }
             finishedURL = url
             tempExportZipURL = url
+            LibraryBackupPreferences.recordBackupCompleted()
         } catch {
             errorText = error.localizedDescription
             try? FileManager.default.removeItem(at: url)
