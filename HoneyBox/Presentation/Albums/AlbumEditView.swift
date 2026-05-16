@@ -17,96 +17,97 @@ struct AlbumEditView: View {
     @State private var showDeleteConfirm = false
     @State private var message: String?
     @State private var showAlert = false
-    @State private var contentWidth: CGFloat = 0
     @State private var draggingImageName: String?
     @State private var isStagingAppend = false
 
     var body: some View {
         Group {
             if meta != nil {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        Form {
-                            Section("Album name") {
-                                TextField("", text: $titleDraft)
-                                    .textInputAutocapitalization(.words)
-                                    .disableAutocorrection(true)
+                let horizontalPadding: CGFloat = 16
+                GeometryReader { geo in
+                    let contentWidth = max(0, geo.size.width - horizontalPadding * 2)
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            Form {
+                                Section("Album name") {
+                                    TextField("", text: $titleDraft)
+                                        .textInputAutocapitalization(.words)
+                                        .disableAutocorrection(true)
+                                }
                             }
-                        }
-                        .scrollDisabled(true)
-                        .scrollContentBackground(.hidden)
-                        .background(Color.clear)
-                        .frame(height: 120)
-                        .padding(.horizontal, 16)
+                            .scrollDisabled(true)
+                            .scrollContentBackground(.hidden)
+                            .background(Color.clear)
+                            .frame(height: 120)
+                            .padding(.horizontal, horizontalPadding)
 
-                        AlbumGridWidthProbe(horizontalPadding: 16)
+                            if contentWidth > 0 {
+                                let spacing: CGFloat = 6
+                                let tile = floor((contentWidth - spacing * 2) / 3)
+                                let columns = Array(repeating: GridItem(.fixed(tile), spacing: spacing), count: 3)
 
-                        if contentWidth > 0 {
-                            let spacing: CGFloat = 6
-                            let tile = floor((contentWidth - spacing * 2) / 3)
-                            let columns = Array(repeating: GridItem(.fixed(tile), spacing: spacing), count: 3)
+                                LazyVGrid(columns: columns, spacing: spacing) {
+                                    ForEach(imagesDraft, id: \.self) { name in
+                                        ZStack(alignment: .topTrailing) {
+                                            AlbumImageThumbCell(
+                                                env: env,
+                                                authorId: authorId,
+                                                albumId: albumId,
+                                                fileName: name,
+                                                decodeMaxEdge: 720
+                                            )
+                                            .frame(width: tile, height: tile)
+                                            .clipped()
 
-                            LazyVGrid(columns: columns, spacing: spacing) {
-                                ForEach(imagesDraft, id: \.self) { name in
-                                    ZStack(alignment: .topTrailing) {
-                                        AlbumImageThumbCell(
-                                            env: env,
-                                            authorId: authorId,
-                                            albumId: albumId,
-                                            fileName: name,
-                                            decodeMaxEdge: 720
-                                        )
+                                            Button(role: .destructive) {
+                                                pendingDelete.insert(name)
+                                                imagesDraft.removeAll { $0 == name }
+                                            } label: {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.title3)
+                                                    .foregroundStyle(.red)
+                                                    .symbolRenderingMode(.hierarchical)
+                                                    .padding(6)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .accessibilityLabel("Remove image (requires Save)")
+                                        }
                                         .frame(width: tile, height: tile)
                                         .clipped()
-
-                                        Button(role: .destructive) {
-                                            pendingDelete.insert(name)
-                                            imagesDraft.removeAll { $0 == name }
-                                        } label: {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .font(.title3)
-                                                .foregroundStyle(.red)
-                                                .symbolRenderingMode(.hierarchical)
-                                                .padding(6)
+                                        .onDrag {
+                                            draggingImageName = name
+                                            return NSItemProvider(object: name as NSString)
                                         }
-                                        .buttonStyle(.plain)
-                                        .accessibilityLabel("Remove image (requires Save)")
-                                    }
-                                    .frame(width: tile, height: tile)
-                                    .clipped()
-                                    .onDrag {
-                                        draggingImageName = name
-                                        return NSItemProvider(object: name as NSString)
-                                    }
-                                    .onDrop(
-                                        of: [.text],
-                                        delegate: ImageReorderDropDelegate(
-                                            item: name,
-                                            items: $imagesDraft,
-                                            dragging: $draggingImageName
+                                        .onDrop(
+                                            of: [.text],
+                                            delegate: ImageReorderDropDelegate(
+                                                item: name,
+                                                items: $imagesDraft,
+                                                dragging: $draggingImageName
+                                            )
                                         )
-                                    )
-                                }
-
-                                Button {
-                                    showImporter = true
-                                } label: {
-                                    ZStack {
-                                        Color.secondary.opacity(0.12)
-                                        Image(systemName: "plus")
-                                            .font(.title)
-                                            .foregroundStyle(.secondary)
                                     }
-                                    .frame(width: tile, height: tile)
+
+                                    Button {
+                                        showImporter = true
+                                    } label: {
+                                        ZStack {
+                                            Color.secondary.opacity(0.12)
+                                            Image(systemName: "plus")
+                                                .font(.title)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        .frame(width: tile, height: tile)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
+                                .padding(.horizontal, horizontalPadding)
+                                .padding(.bottom, 32)
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 32)
                         }
                     }
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 }
-                .onPreferenceChange(AlbumGridWidthKey.self) { if $0 > 0 { contentWidth = $0 } }
             } else {
                 ProgressView()
             }
@@ -260,22 +261,6 @@ struct AlbumEditView: View {
             message = error.localizedDescription
             showAlert = true
         }
-    }
-}
-
-private struct AlbumGridWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
-
-private struct AlbumGridWidthProbe: View {
-    let horizontalPadding: CGFloat
-    var body: some View {
-        GeometryReader { geo in
-            Color.clear
-                .preference(key: AlbumGridWidthKey.self, value: max(0, geo.size.width - horizontalPadding * 2))
-        }
-        .frame(height: 0)
     }
 }
 

@@ -10,8 +10,6 @@ struct AlbumDetailView: View {
     @State private var meta: AlbumMetaFile?
     @State private var viewerSelection: ViewerSelection?
     @State private var immersiveSelection: ImmersiveSelection?
-    @State private var contentWidth: CGFloat = 0
-
     private var isFavorite: Bool {
         env.librarySnapshot.favoriteAlbums.contains(ImageRef.globalAlbumKey(authorId: authorId, albumId: albumId))
     }
@@ -105,37 +103,39 @@ struct AlbumDetailView: View {
     }
 
     private func albumGrid(meta: AlbumMetaFile) -> some View {
-        ScrollView {
-            AlbumGridWidthProbe(horizontalPadding: 12)
+        let horizontalPadding: CGFloat = 12
+        return GeometryReader { geo in
+            let contentWidth = max(0, geo.size.width - horizontalPadding * 2)
+            ScrollView {
+                if contentWidth > 0 {
+                    let spacing: CGFloat = 6
+                    let tile = floor((contentWidth - spacing * 2) / 3)
+                    let columns = Array(repeating: GridItem(.fixed(tile), spacing: spacing), count: 3)
 
-            if contentWidth > 0 {
-                let spacing: CGFloat = 6
-                let tile = floor((contentWidth - spacing * 2) / 3)
-                let columns = Array(repeating: GridItem(.fixed(tile), spacing: spacing), count: 3)
-
-                LazyVGrid(columns: columns, spacing: spacing) {
-                    ForEach(Array(meta.images.enumerated()), id: \.offset) { index, name in
-                        Button {
-                            viewerSelection = ViewerSelection(startIndex: index)
-                        } label: {
-                            AlbumImageThumbCell(
-                                env: env,
-                                authorId: authorId,
-                                albumId: albumId,
-                                fileName: name,
-                                decodeMaxEdge: 720
-                            )
-                            .frame(width: tile, height: tile)
-                            .clipped()
+                    LazyVGrid(columns: columns, spacing: spacing) {
+                        ForEach(Array(meta.images.enumerated()), id: \.offset) { index, name in
+                            Button {
+                                viewerSelection = ViewerSelection(startIndex: index)
+                            } label: {
+                                AlbumImageThumbCell(
+                                    env: env,
+                                    authorId: authorId,
+                                    albumId: albumId,
+                                    fileName: name,
+                                    decodeMaxEdge: 720
+                                )
+                                .frame(width: tile, height: tile)
+                                .clipped()
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.top, 6)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
             }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }
-        .onPreferenceChange(AlbumGridWidthKey.self) { if $0 > 0 { contentWidth = $0 } }
     }
 
     private func load() async {
@@ -165,18 +165,3 @@ private struct ImmersiveSelection: Identifiable {
     let startIndex: Int
 }
 
-private struct AlbumGridWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
-
-private struct AlbumGridWidthProbe: View {
-    let horizontalPadding: CGFloat
-    var body: some View {
-        GeometryReader { geo in
-            Color.clear
-                .preference(key: AlbumGridWidthKey.self, value: max(0, geo.size.width - horizontalPadding * 2))
-        }
-        .frame(height: 0)
-    }
-}

@@ -12,7 +12,6 @@ struct ArtistAlbumsView: View {
     @State private var showImport = false
     @State private var importMessage: String?
     @State private var showImportAlert = false
-    @State private var contentWidth: CGFloat = 0
     @State private var showArtistImmersive = false
     @State private var artistImmersivePlaylist: [ImageRef] = []
     @State private var isBuildingArtistPlaylist = false
@@ -45,26 +44,28 @@ struct ArtistAlbumsView: View {
                     message: "Use + to import images for this artist."
                 )
             } else if useGrid {
-                ScrollView {
-                    MosaicContentWidthProbe(horizontalPadding: 16)
-
-                    if contentWidth > 0 {
-                        let metrics = MosaicMetrics(contentWidth: contentWidth, gap: 10, cornerRadius: 20)
-                        MosaicGridView(rows: mosaicRows(albums), metrics: metrics) { album in
-                            AlbumMosaicCell(
-                                env: env,
-                                authorId: authorId,
-                                authorName: authorName,
-                                album: album,
-                                cornerRadius: metrics.cornerRadius
-                            )
+                let horizontalPadding: CGFloat = 16
+                GeometryReader { geo in
+                    let contentWidth = max(0, geo.size.width - horizontalPadding * 2)
+                    ScrollView {
+                        if contentWidth > 0 {
+                            let metrics = MosaicMetrics(contentWidth: contentWidth, gap: 10, cornerRadius: 20)
+                            MosaicGridView(rows: mosaicRows(albums), metrics: metrics) { album in
+                                AlbumMosaicCell(
+                                    env: env,
+                                    authorId: authorId,
+                                    authorName: authorName,
+                                    album: album,
+                                    cornerRadius: metrics.cornerRadius
+                                )
+                            }
+                            .padding(.horizontal, horizontalPadding)
+                            .padding(.bottom, 32)
+                            .id("\(sortLatest)-\(filter)")
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 32)
-                        .id("\(sortLatest)-\(filter)")
                     }
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 }
-                .onPreferenceChange(MosaicContentWidthKey.self) { if $0 > 0 { contentWidth = $0 } }
             } else {
                 List(albums) { album in
                     NavigationLink {
@@ -358,22 +359,6 @@ private struct MosaicRowView<T: Identifiable, Cell: View>: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: metrics.unit)
         }
-    }
-}
-
-private struct MosaicContentWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
-
-private struct MosaicContentWidthProbe: View {
-    let horizontalPadding: CGFloat
-    var body: some View {
-        GeometryReader { geo in
-            Color.clear
-                .preference(key: MosaicContentWidthKey.self, value: max(0, geo.size.width - horizontalPadding * 2))
-        }
-        .frame(height: 0)
     }
 }
 
