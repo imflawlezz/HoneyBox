@@ -9,6 +9,20 @@ struct ArtistsListView: View {
     @State private var showRename = false
     @State private var deleteAuthorId: String?
     @State private var showDeleteConfirm = false
+    @State private var searchText = ""
+    @AppStorage("artistListSortOrder") private var sortOrderRaw = ArtistListSortOrder.nameAscending.rawValue
+
+    private var sortOrder: ArtistListSortOrder {
+        get { ArtistListSortOrder(rawValue: sortOrderRaw) ?? .nameAscending }
+        nonmutating set { sortOrderRaw = newValue.rawValue }
+    }
+
+    private var displayedAuthors: [AuthorSummaryDTO] {
+        let sorted = sortOrder.sorted(env.librarySnapshot.authors, snapshot: env.librarySnapshot)
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return sorted }
+        return sorted.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    }
 
     var body: some View {
         Group {
@@ -19,9 +33,12 @@ struct ArtistsListView: View {
                     message: "Add one to get started."
                 )
                 .frame(maxHeight: .infinity)
+            } else if displayedAuthors.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+                    .frame(maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(env.librarySnapshot.authors) { author in
+                    ForEach(displayedAuthors) { author in
                         NavigationLink {
                             ArtistAlbumsView(env: env, authorId: author.id, authorName: author.name)
                         } label: {
@@ -65,7 +82,27 @@ struct ArtistsListView: View {
             }
         }
         .navigationTitle("Artists")
+        .searchable(text: $searchText, prompt: "Search artists")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Menu {
+                    Picker("Sort by", selection: Binding(
+                        get: { sortOrder },
+                        set: { sortOrder = $0 }
+                    )) {
+                        ForEach(ArtistListSortOrder.allCases) { order in
+                            Text(order.menuTitle).tag(order)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .symbolRenderingMode(.monochrome)
+                        .foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                .tint(.primary)
+                .accessibilityLabel("Sort artists")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showAdd = true
