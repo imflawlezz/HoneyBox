@@ -17,6 +17,8 @@ struct ImmersiveShuffleViewerShell: View {
     @State private var toastText: String = ""
     @State private var albumDestination: ImmersiveOpenedAlbum?
     @State private var resumeSlideshowAfterAlbum = false
+    @State private var sessionInitialized = false
+    @State private var isBootstrapping = true
 
     private var current: ImageRef? {
         history.indices.contains(cursor) ? history[cursor] : nil
@@ -28,7 +30,11 @@ struct ImmersiveShuffleViewerShell: View {
                 ZStack {
                     Color.black.ignoresSafeArea()
 
-                    if let current {
+                    if isBootstrapping {
+                        ProgressView()
+                            .controlSize(.large)
+                            .tint(.white)
+                    } else if let current {
                         Group {
                             if let displayedGIF {
                                 GifPlaybackView(gif: displayedGIF, playbackID: displayedFileName ?? current.fileName)
@@ -163,7 +169,8 @@ struct ImmersiveShuffleViewerShell: View {
                 )
             }
             .task {
-                await start()
+                guard !sessionInitialized else { return }
+                await bootstrapSession()
             }
             .task(id: slideshowKey) {
                 guard isPlaying else { return }
@@ -190,7 +197,8 @@ struct ImmersiveShuffleViewerShell: View {
         "\(isPlaying)-\(intervalSeconds)"
     }
 
-    private func start() async {
+    private func bootstrapSession() async {
+        await MainActor.run { isBootstrapping = true }
         do {
             try await env.shuffle.reset()
             if let cur = await env.shuffle.current() {
@@ -200,12 +208,21 @@ struct ImmersiveShuffleViewerShell: View {
                 }
                 await env.shuffle.preloadAroundCurrent(ahead: 20, behind: 2)
                 await loadCurrent(cur)
+            } else {
+                await MainActor.run {
+                    history = []
+                    cursor = 0
+                }
             }
         } catch {
             await MainActor.run {
                 history = []
                 cursor = 0
             }
+        }
+        await MainActor.run {
+            isBootstrapping = false
+            sessionInitialized = true
         }
     }
 
